@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Footy Stat Battle</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background: #0b1c2d;
+  color: white;
+  text-align: center;
+}
+
+h1 { color: #ffcc00; }
+
+.stat {
+  font-size: 22px;
+  margin: 15px;
+  color: #00ffcc;
+}
+
+#statSelect {
+  width: 180px;
+  font-size: 16px;
+  padding: 4px;
+  border-radius: 6px;
+  border: none;
+  text-align: center;
+}
+
+#players {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+}
+
+.card {
+  background: #162a40;
+  padding: 10px;
+  width: 320px;
+  border-radius: 10px;
+  box-shadow: 0 0 10px black;
+}
+
+.picks div {
+  display: grid;
+  grid-template-columns: 1fr 70px 60px;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+input, select {
+  width: 100%;
+  padding: 4px;
+  border-radius: 4px;
+  border: none;
+}
+
+.value {
+  background: #0b1c2d;
+  border-radius: 4px;
+  padding: 4px;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.total {
+  margin-top: 6px;
+  font-weight: bold;
+  color: #ffcc00;
+  cursor: pointer;
+}
+
+.wins {
+  margin-top: 4px;
+  font-size: 14px;
+  color: #00ffcc;
+  font-weight: bold;
+}
+
+.hidden { color: #0b1c2d; }
+
+button {
+  padding: 8px 12px;
+  margin: 6px;
+  border-radius: 6px;
+  border: none;
+  background: #ffcc00;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+/* PLAYER NAME COLOURS */
+.p1 { color:#ff5252; }
+.p2 { color:#4fc3f7; }
+.p3 { color:#81c784; }
+.p4 { color:#ffd54f; }
+</style>
+</head>
+
+<body>
+
+<h1>🏉 FOOTY STAT BATTLE</h1>
+
+<div class="stat" style="display:flex; justify-content:center; gap:10px;">
+  STAT:
+  <select id="statSelect" onchange="setStat()"></select>
+</div>
+
+<button onclick="addPlayer()">➕ Add Player</button>
+<button onclick="newGame()">🔄 NEW GAME</button>
+<button onclick="newRound()">▶ NEW ROUND</button>
+<button onclick="toggleHide()">🕶️ Hide Scores</button>
+
+<div id="players"></div>
+
+<button onclick="compare()">🏆 REVEAL WINNER</button>
+<div id="result"></div>
+
+<datalist id="playersList"></datalist>
+
+<script>
+let data = [];
+let currentStat = "";
+let hide = false;
+let playerCount = 2;
+
+const nameColors = ["p1","p2","p3","p4"];
+
+const stats = [
+  "Kicks","Marks","Handballs","Disposals","Goals","Behinds",
+  "Hitouts","Tackles","Rebound 50s","Inside 50s","Clearances",
+  "Brownlow Votes","Contested Possessions","Uncontested Possesions",
+  "Marks Inside 50","One Percenters","Bounces","Goal Assists"
+];
+
+const statSelect = document.getElementById("statSelect");
+statSelect.innerHTML = `<option value="">-- Choose Stat --</option>` +
+  stats.map(s => `<option>${s}</option>`).join("");
+
+d3.csv("AFL Player Data - All.csv").then(csv => {
+  data = csv;
+
+  const players = [...new Set(data.map(d => d.Player))].sort();
+  const list = document.getElementById("playersList");
+  players.forEach(p => {
+    const opt = document.createElement("option");
+    opt.value = p;
+    list.appendChild(opt);
+  });
+
+  newGame();
+});
+
+function setStat() {
+  currentStat = statSelect.value;
+  clearValues();
+}
+
+function newGame() {
+  document.getElementById("players").innerHTML = "";
+  playerCount = 0;
+  addPlayer();
+  addPlayer();
+  document.getElementById("result").textContent = "";
+}
+
+function newRound() {
+  document.getElementById("result").textContent = "";
+
+  document.querySelectorAll(".name").forEach(i => i.value = "");
+  document.querySelectorAll(".year").forEach(s => s.innerHTML = `<option value="">Year</option>`);
+
+  document.querySelectorAll(".value").forEach(v => {
+    v.dataset.real = 0;
+    v.textContent = hide ? "?" : 0;
+  });
+
+  document.querySelectorAll(".total").forEach(t => {
+    t.dataset.real = 0;
+    t.textContent = hide ? "TOTAL: ?" : "TOTAL: 0";
+  });
+}
+
+function addPlayer() {
+  if (playerCount >= 4) return;
+  playerCount++;
+
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `
+    <h3 contenteditable="true" class="${nameColors[playerCount-1]}">Player ${playerCount}</h3>
+    <div class="wins" data-wins="0">Wins: 0</div>
+    <div class="picks">
+      ${'<div><input class="name" list="playersList" oninput="updateYears(this)"><select class="year" onchange="updateRow(this)"><option value="">Year</option></select><div class="value hidden" data-real="0">0</div></div>'.repeat(10)}
+    </div>
+    <div class="total hidden" data-real="0" onclick="revealPlayer(this)">TOTAL: 0</div>
+  `;
+  document.getElementById("players").appendChild(card);
+}
+
+function updateYears(input) {
+  const row = input.parentElement;
+  const yearSel = row.querySelector(".year");
+  yearSel.innerHTML = `<option value="">Year</option>`;
+
+  const name = input.value.toLowerCase();
+  const years = data.filter(d => d.Player.toLowerCase() === name)
+                    .map(d => d.Year);
+
+  [...new Set(years)].sort().forEach(y => {
+    const opt = document.createElement("option");
+    opt.value = y;
+    opt.textContent = y;
+    yearSel.appendChild(opt);
+  });
+}
+
+function updateRow(select) {
+  if (!currentStat) return;
+
+  const row = select.parentElement;
+  const name = row.querySelector(".name").value;
+  const year = select.value;
+  const valBox = row.querySelector(".value");
+
+  const match = data.find(d =>
+    d.Player === name && d.Year === year
+  );
+
+  const val = match ? +match[currentStat] : 0;
+  valBox.dataset.real = val;
+  valBox.textContent = hide ? "?" : val;
+
+  updateTotals();
+}
+
+function updateTotals() {
+  document.querySelectorAll(".card").forEach(card => {
+    let sum = 0;
+    card.querySelectorAll(".value").forEach(v => sum += +v.dataset.real);
+    const t = card.querySelector(".total");
+    t.dataset.real = sum;
+    t.textContent = hide ? "TOTAL: ?" : `TOTAL: ${sum}`;
+  });
+}
+
+function toggleHide() {
+  hide = !hide;
+  document.querySelectorAll(".value, .total").forEach(el => {
+    el.textContent = hide ? "?" : el.dataset.real || 0;
+    el.classList.toggle("hidden", hide);
+  });
+}
+
+function revealPlayer(el) {
+  el.classList.toggle("hidden");
+  el.textContent = el.classList.contains("hidden")
+    ? "TOTAL: ?"
+    : `TOTAL: ${el.dataset.real}`;
+}
+
+function clearValues() {
+  document.querySelectorAll(".value").forEach(v => {
+    v.textContent = hide ? "?" : 0;
+    v.dataset.real = 0;
+  });
+  updateTotals();
+}
+
+function compare() {
+  const cards = document.querySelectorAll(".card");
+  const totals = [];
+
+  cards.forEach((c,i)=>{
+    totals.push({i, v:+c.querySelector(".total").dataset.real});
+  });
+
+  const max = Math.max(...totals.map(t=>t.v));
+  const winners = totals.filter(t=>t.v===max);
+
+  if (winners.length === 1) {
+    const winCard = cards[winners[0].i];
+    const winBox = winCard.querySelector(".wins");
+    let wins = +winBox.dataset.wins + 1;
+    winBox.dataset.wins = wins;
+    winBox.textContent = `Wins: ${wins}`;
+
+    document.getElementById("result").innerHTML =
+      `🏆 ${winCard.querySelector("h3").textContent} wins!`;
+  } else {
+    document.getElementById("result").innerHTML = `🤝 Draw!`;
+  }
+}
+</script>
+
+</body>
+</html>
